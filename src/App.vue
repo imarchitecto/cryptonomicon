@@ -1,6 +1,7 @@
 <template>
   <div class="container mx-auto flex flex-col items-center bg-gray-100 p-4">
-    <!-- <div
+    <div
+      v-if="spinnerCheck"
       class="fixed w-100 h-100 opacity-80 bg-purple-800 inset-0 z-50 flex items-center justify-center"
     >
       <svg
@@ -23,7 +24,7 @@
           d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
         ></path>
       </svg>
-    </div> -->
+    </div>
     <div class="container">
       <section>
         <div class="flex">
@@ -34,7 +35,9 @@
             <div class="mt-1 relative rounded-md shadow-md">
               <input
                 v-model="ticker"
+                @keyup="tickerSearch()"
                 @keydown.enter="add()"
+                @keydown.delete="removeNotice()"
                 type="text"
                 name="wallet"
                 id="wallet"
@@ -46,27 +49,17 @@
               class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap"
             >
               <span
+                v-for="(n, idx) in normalizeExitTicker()"
+                :key="idx"
+                @click="addingHint(n), add()"
                 class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
               >
-                BTC
-              </span>
-              <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                DOGE
-              </span>
-              <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                BCH
-              </span>
-              <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                CHD
+                {{ n }}
               </span>
             </div>
-            <div class="text-sm text-red-600">Такой тикер уже добавлен</div>
+            <div v-if="checkTickers" class="text-sm text-red-600">
+              Такой тикер уже добавлен
+            </div>
           </div>
         </div>
         <button
@@ -96,6 +89,10 @@
           <div
             v-for="t of tickers"
             :key="t.name"
+            @click="select(t)"
+            :class="{
+              'border-4': sel === t,
+            }"
             class="bg-white overflow-hidden shadow rounded-lg border-purple-800 border-solid cursor-pointer"
           >
             <div class="px-4 py-5 sm:p-6 text-center">
@@ -108,7 +105,7 @@
             </div>
             <div class="w-full border-t border-gray-200"></div>
             <button
-              @click="handleDelete(t)"
+              @click.stop="handleDelete(t)"
               class="flex items-center justify-center font-medium w-full bg-gray-100 px-4 py-4 sm:px-6 text-md text-gray-500 hover:text-gray-600 hover:bg-gray-200 hover:opacity-20 transition-all focus:outline-none"
             >
               <svg
@@ -129,17 +126,25 @@
         </dl>
         <hr class="w-full border-t border-gray-600 my-4" />
       </template>
-      <section class="relative">
-        <h3 class="text-lg leading-6 font-medium text-gray-900 my-8">
-          VUE - USD
+      <section v-if="sel" class="relative">
+        <h3 class="texwt-lg leading-6 font-medium text-gray-900 my-8">
+          {{ sel.name }} - USD
         </h3>
         <div class="flex items-end border-gray-600 border-b border-l h-64">
-          <div class="bg-purple-800 border w-10 h-24"></div>
-          <div class="bg-purple-800 border w-10 h-32"></div>
-          <div class="bg-purple-800 border w-10 h-48"></div>
-          <div class="bg-purple-800 border w-10 h-16"></div>
+          <div
+            v-for="(bar, idx) of normalizeGraph()"
+            :key="idx"
+            :style="{
+              height: `${bar}%`,
+            }"
+            class="bg-purple-800 border w-10"
+          ></div>
         </div>
-        <button type="button" class="absolute top-0 right-0">
+        <button
+          @click="sel = null"
+          type="button"
+          class="absolute top-0 right-0"
+        >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -172,25 +177,113 @@ export default {
   name: "App",
   data() {
     return {
-      ticker: "default",
+      ticker: "",
       tickers: [],
+      sel: null,
+      graph: [],
+      checkTickers: false,
+      coinListObject: null,
+      coinList: [],
+      coinListForDisplay: ["BTC", "DOGE", "BCH", "CHD"],
+      spinnerCheck: true,
     };
   },
 
   methods: {
     add() {
-      let newTicker = {
-        name: this.ticker,
+      let currentTicker = {
+        name: this.ticker.toUpperCase(),
         price: "-",
       };
 
-      this.tickers.push(newTicker);
-      this.ticker = "";
+      if (this.tickers.find((t) => t.name == currentTicker.name)) {
+        this.checkTickers = true;
+      } else {
+        this.tickers.push(currentTicker);
+        setInterval(async () => {
+          const f = await fetch(
+            `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=dbf1381cbf166b8fb1738b23ef9ae6e420a50daeec534074bc6b3b037770f29a`,
+          );
+          const data = await f.json();
+          this.tickers.find((t) => t.name === currentTicker.name).price =
+            data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+
+          if (this.sel?.name === currentTicker.name) {
+            this.graph.push(data.USD);
+          }
+        }, 10000);
+        this.ticker = "";
+      }
+    },
+
+    select(t) {
+      this.sel = t;
+      this.graph = [];
     },
 
     handleDelete(tickerToRemove) {
       this.tickers = this.tickers.filter((t) => t != tickerToRemove);
+      if (tickerToRemove === this.sel) {
+        this.sel = null;
+      }
     },
+
+    normalizeGraph() {
+      const maxValue = Math.max(...this.graph);
+      const minValue = Math.min(...this.graph);
+      return this.graph.map(
+        (bar) => 5 + ((bar - minValue) * 100) / (maxValue - minValue),
+      );
+    },
+
+    removeNotice() {
+      this.checkTickers = false;
+    },
+
+    tickerSearch() {
+      this.coinListForDisplay = [];
+      this.coinList.forEach((element) => {
+        if (element.includes(`${this.ticker.toUpperCase()}`)) {
+          this.coinListForDisplay.push(element);
+        }
+      });
+
+      if (!this.ticker) {
+        this.coinListForDisplay[0] = "BTC";
+        this.coinListForDisplay[1] = "DOGE";
+        this.coinListForDisplay[2] = "BCH";
+        this.coinListForDisplay[3] = "CHD";
+      }
+    },
+
+    normalizeExitTicker() {
+      return this.coinListForDisplay.slice(0, 4);
+    },
+
+    addingHint(n) {
+      this.ticker = n;
+      this.coinListForDisplay[0] = "BTC";
+      this.coinListForDisplay[1] = "DOGE";
+      this.coinListForDisplay[2] = "BCH";
+      this.coinListForDisplay[3] = "CHD";
+    },
+  },
+
+  async created() {
+    const k = await fetch(
+      "https://min-api.cryptocompare.com/data/all/coinlist?summary=true",
+    );
+    const data = await k.json();
+    this.coinListObject = data.Data;
+    for (let key in this.coinListObject) {
+      this.coinList.push(this.coinListObject[key].Symbol);
+    }
+  },
+
+  async mounted() {
+    await setTimeout(() => {
+      this.spinnerCheck = false;
+    }, 3000);
   },
 };
 </script>
